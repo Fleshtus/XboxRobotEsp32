@@ -1,29 +1,14 @@
-// This is the library for the TB6612 that contains the class Motor and all the
-// functions
-#include <SparkFun_TB6612.h>
 #include <Bluepad32.h>
 
 // SparkFun Motor Controller
-const int AIN1 = 12;
-const int BIN1 = 26;
-const int AIN2 = 14;
-const int BIN2 = 25;
-const int PWMA = 13;
-const int PWMB = 33;
-const int STBY = 27;
+const int PWM1 = 13;
+const int PWM2 = 12;
+const int Right1 = 14;
+const int Right2 = 27;
+const int Left1 = 26;
+const int Left2 = 25;
+const int STBY = 33;
 
-const int AIN1B = 18;
-const int BIN1B = 21;
-const int AIN2B = 19;
-const int BIN2B = 32;
-
-const int offsetA = 1;
-const int offsetB = 1;
-
-Motor motorFL = Motor(AIN1, AIN2, PWMA, offsetA, STBY);
-Motor motorBR = Motor(BIN1, BIN2, PWMB, offsetA, STBY);
-Motor motorFR = Motor(AIN1B, AIN2B, PWMA, offsetA, STBY);
-Motor motorBL = Motor(BIN1B, BIN2B, PWMB, offsetA, STBY);
 
 // Bluepad32
 ControllerPtr myControllers[BP32_MAX_GAMEPADS];
@@ -31,44 +16,44 @@ ControllerPtr myControllers[BP32_MAX_GAMEPADS];
 // This callback gets called any time a new gamepad is connected.
 // Up to 4 gamepads can be connected at the same time.
 void onConnectedController(ControllerPtr ctl) {
-    bool foundEmptySlot = false;
-    for (int i = 0; i < BP32_MAX_GAMEPADS; i++) {
-        if (myControllers[i] == nullptr) {
-            Serial.printf("CALLBACK: Controller is connected, index=%d\n", i);
-            // Additionally, you can get certain gamepad properties like:
-            // Model, VID, PID, BTAddr, flags, etc.
-            ControllerProperties properties = ctl->getProperties();
-            Serial.printf("Controller model: %s, VID=0x%04x, PID=0x%04x\n", ctl->getModelName().c_str(), properties.vendor_id,
-                           properties.product_id);
-            myControllers[i] = ctl;
-            foundEmptySlot = true;
-            break;
-        }
+  bool foundEmptySlot = false;
+  for (int i = 0; i < BP32_MAX_GAMEPADS; i++) {
+    if (myControllers[i] == nullptr) {
+      Serial.printf("CALLBACK: Controller is connected, index=%d\n", i);
+      // Additionally, you can get certain gamepad properties like:
+      // Model, VID, PID, BTAddr, flags, etc.
+      ControllerProperties properties = ctl->getProperties();
+      Serial.printf("Controller model: %s, VID=0x%04x, PID=0x%04x\n", ctl->getModelName().c_str(), properties.vendor_id,
+                    properties.product_id);
+      myControllers[i] = ctl;
+      foundEmptySlot = true;
+      break;
     }
-    if (!foundEmptySlot) {
-        Serial.println("CALLBACK: Controller connected, but could not found empty slot");
-    }
+  }
+  if (!foundEmptySlot) {
+    Serial.println("CALLBACK: Controller connected, but could not found empty slot");
+  }
 }
 
 void onDisconnectedController(ControllerPtr ctl) {
-    bool foundController = false;
+  bool foundController = false;
 
-    for (int i = 0; i < BP32_MAX_GAMEPADS; i++) {
-        if (myControllers[i] == ctl) {
-            Serial.printf("CALLBACK: Controller disconnected from index=%d\n", i);
-            myControllers[i] = nullptr;
-            foundController = true;
-            break;
-        }
+  for (int i = 0; i < BP32_MAX_GAMEPADS; i++) {
+    if (myControllers[i] == ctl) {
+      Serial.printf("CALLBACK: Controller disconnected from index=%d\n", i);
+      myControllers[i] = nullptr;
+      foundController = true;
+      break;
     }
+  }
 
-    if (!foundController) {
-        Serial.println("CALLBACK: Controller disconnected, but not found in myControllers");
-    }
+  if (!foundController) {
+    Serial.println("CALLBACK: Controller disconnected, but not found in myControllers");
+  }
 }
 
 void dumpGamepad(ControllerPtr ctl) {
-    /*Serial.printf(
+  /*Serial.printf(
         //"idx=%d, dpad: 0x%02x, buttons: 0x%04x, axis L: %4d, %4d, axis R: %4d, %4d, brake: %4d, throttle: %4d, "
         //"misc: 0x%02x, gyro x:%6d y:%6d z:%6d, accel x:%6d y:%6d z:%6d\n",
         "axis L: %4d, %4d, axis R: %4d, %4d, brake: %4d, throttle: %4d\n",
@@ -91,131 +76,192 @@ void dumpGamepad(ControllerPtr ctl) {
     );*/
 }
 
-int motorSpeed = 100;
+int spdTbl[] = {0, 100, 200, 240};
+int spdNum = 1;
+const double offset = 1.15;
+bool turning = false;
 
-void move(int s) {
-  motorFL.drive(s);
-  motorBR.drive(s);
-  motorFR.drive(s);
-  motorBL.drive(s);
+void fwd() {
+  digitalWrite(Right1, HIGH);
+  digitalWrite(Right2, LOW);
+  digitalWrite(Left1, HIGH);
+  digitalWrite(Left2, LOW);
 }
 
-void strafeLeft(int s) {
-  motorFL.drive(s);
-  motorBR.drive(s);
-  motorFR.drive(-s);
-  motorBL.drive(-s);
+void bwd() {
+  digitalWrite(Right1, LOW);
+  digitalWrite(Right2, HIGH);
+  digitalWrite(Left1, LOW);
+  digitalWrite(Left2, HIGH);
 }
 
-void stopAll() {
-  brake(motorFL, motorBR);
-  brake(motorFR, motorBL);
+void trnR() {
+  digitalWrite(Right1, HIGH);
+  digitalWrite(Right2, LOW);
+  digitalWrite(Left1, LOW);
+  digitalWrite(Left2, HIGH);
+}
+
+void trnL() {
+  digitalWrite(Right1, LOW);
+  digitalWrite(Right2, HIGH);
+  digitalWrite(Left1, HIGH);
+  digitalWrite(Left2, LOW);
 }
 
 void processGamepad(ControllerPtr ctl) {
-    // There are different ways to query whether a button is pressed.
-    // By query each button individually:
-    //  a(), b(), x(), y(), l1(), etc...
+  // There are different ways to query whether a button is pressed.
+  // By query each button individually:
+  //  a(), b(), x(), y(), l1(), etc...
 
-    // Change speed
-    if (ctl->l1()) {
-      if (motorSpeed - 10 < 10){
-        motorSpeed = 10;
-      }
-      else {
-        motorSpeed -= 10;
-      }
-      Serial.println(motorSpeed);
-    }
-    
-    if (ctl->r1()) {
-      if (motorSpeed + 10 > 255){
-        motorSpeed = 255;
-      }
-      else {
-        motorSpeed += 10;
-      }
-      Serial.println(motorSpeed);
-    }
-
-    // Driving
-    if (ctl->throttle() > 0) { // Forward
-      //Serial.println(ctl->axisX());
-      move(motorSpeed); // Go forward
-    }
-    else if (ctl->brake() > 0) { // Backward
-      Serial.println("Backward");
-      move(-motorSpeed); // Go backward
-    }
-    else if (ctl->axisX() < -100) {
-      strafeLeft(motorSpeed);
-    }
-    else if (ctl->axisX() > 100) {
-      strafeLeft(-motorSpeed);
+  // Change speed
+  if (ctl->l1()) {
+    if (spdNum - 1 < 0) {
+      spdNum = 0;
     }
     else {
-      stopAll();
+      spdNum--;
     }
+  }
 
-    // Another way to query controller data is by getting the buttons() function.
-    // See how the different "dump*" functions dump the Controller info.
-    dumpGamepad(ctl);
+  if (ctl->r1()) {
+    if (spdNum >= 3) {
+      spdNum = 3;
+    }
+    else {
+      spdNum++;
+    }
+    Serial.println(spdNum);
+  }
+  
+  digitalWrite(STBY, HIGH);
+
+  if (ctl->axisX() < -100) {
+    turning = true;
+    analogWrite(PWM2, spdTbl[spdNum]);
+    trnL();
+
+    if (ctl->throttle() > 0) {
+      analogWrite(PWM1, 0);
+      fwd();
+    }
+    else if (ctl->brake() > 0) {
+      analogWrite(PWM1, 0);
+      bwd();
+    }
+    else {
+      analogWrite(PWM1, spdTbl[spdNum]);
+    }
+  }
+  else if (ctl->axisX() > 100){
+    turning = true;
+    analogWrite(PWM1, spdTbl[spdNum] / offset);
+    trnR();
+
+    if (ctl->throttle() > 0) {
+      analogWrite(PWM2, 0);
+      fwd();
+    }
+    else if (ctl->brake() > 0) {
+      analogWrite(PWM2, 0);
+      bwd();
+    }
+    else {
+      analogWrite(PWM2, spdTbl[spdNum]);
+    }
+  }
+  else {
+    turning = false;
+  }
+
+  // Driving
+  if (ctl->throttle() > 0) {  // Forward
+    if (turning == false) {
+      Serial.println(spdTbl[spdNum] / offset);
+      fwd(); // Rotate all wheels forward
+      analogWrite(PWM1, spdTbl[spdNum] / offset);
+      analogWrite(PWM2, spdTbl[spdNum]);
+    }
+  }
+  else if (ctl->brake() > 0) {  // Backward
+    if (turning == false) {
+      bwd(); // Rotate all wheels forward
+      analogWrite(PWM1, spdTbl[spdNum] / offset);
+      analogWrite(PWM2, spdTbl[spdNum]);
+    }
+  }
+  else if (turning == false) {
+    analogWrite(PWM1, 0);
+    analogWrite(PWM2, 0);
+  }
+
+  // Another way to query controller data is by getting the buttons() function.
+  // See how the different "dump*" functions dump the Controller info.
+  dumpGamepad(ctl);
 }
 
 void processControllers() {
-    for (auto myController : myControllers) {
-        if (myController && myController->isConnected() && myController->hasData()) {
-            if (myController->isGamepad()) {
-                processGamepad(myController);
-            } else {
-                Serial.println("Unsupported controller");
-            }
-        }
+  for (auto myController : myControllers) {
+    if (myController && myController->isConnected() && myController->hasData()) {
+      if (myController->isGamepad()) {
+        processGamepad(myController);
+      } else {
+        Serial.println("Unsupported controller");
+      }
     }
+  }
 }
 
 // Arduino setup function. Runs in CPU 1
 void setup() {
-    brake(motorFL, motorBR);
-    brake(motorFR, motorBL);
+  // Set driving pins to output
+  pinMode(Right1, OUTPUT);
+  pinMode(Right2, OUTPUT);
+  pinMode(Left1, OUTPUT);
+  pinMode(Left2, OUTPUT);
 
-    Serial.begin(115200);
-    //Serial.printf("Firmware: %s\n", BP32.firmwareVersion());
-    const uint8_t* addr = BP32.localBdAddress();
-    //Serial.printf("BD Addr: %2X:%2X:%2X:%2X:%2X:%2X\n", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
+  // Set TB6612 pins to output
+  pinMode(STBY, OUTPUT);
+  pinMode(PWM1, OUTPUT);
+  pinMode(PWM2, OUTPUT);
 
-    // Setup the Bluepad32 callbacks
-    BP32.setup(&onConnectedController, &onDisconnectedController);
+  Serial.begin(115200);
+  //Serial.printf("Firmware: %s\n", BP32.firmwareVersion());
+  const uint8_t* addr = BP32.localBdAddress();
+  //Serial.printf("BD Addr: %2X:%2X:%2X:%2X:%2X:%2X\n", addr[0], addr[1], addr[2], addr[3], addr[4], addr[5]);
 
-    // "forgetBluetoothKeys()" should be called when the user performs
-    // a "device factory reset", or similar.
-    // Calling "forgetBluetoothKeys" in setup() just as an example.
-    // Forgetting Bluetooth keys prevents "paired" gamepads to reconnect.
-    // But it might also fix some connection / re-connection issues.
-    BP32.forgetBluetoothKeys();
+  // Setup the Bluepad32 callbacks
+  BP32.setup(&onConnectedController, &onDisconnectedController);
 
-    // Enables mouse / touchpad support for gamepads that support them.
-    // When enabled, controllers like DualSense and DualShock4 generate two connected devices:
-    // - First one: the gamepad
-    // - Second one, which is a "virtual device", is a mouse.
-    // By default, it is disabled.
-    BP32.enableVirtualDevice(false);
+  // "forgetBluetoothKeys()" should be called when the user performs
+  // a "device factory reset", or similar.
+  // Calling "forgetBluetoothKeys" in setup() just as an example.
+  // Forgetting Bluetooth keys prevents "paired" gamepads to reconnect.
+  // But it might also fix some connection / re-connection issues.
+  BP32.forgetBluetoothKeys();
+
+  // Enables mouse / touchpad support for gamepads that support them.
+  // When enabled, controllers like DualSense and DualShock4 generate two connected devices:
+  // - First one: the gamepad
+  // - Second one, which is a "virtual device", is a mouse.
+  // By default, it is disabled.
+  BP32.enableVirtualDevice(false);
 }
 
 // Arduino loop function. Runs in CPU 1.
 void loop() {
-    // This call fetches all the controllers' data.
-    // Call this function in your main loop.
-    bool dataUpdated = BP32.update();
-    if (dataUpdated)
-        processControllers();
+  // This call fetches all the controllers' data.
+  // Call this function in your main loop.
+  bool dataUpdated = BP32.update();
+  if (dataUpdated)
+    processControllers();
 
-    // The main loop must have some kind of "yield to lower priority task" event.
-    // Otherwise, the watchdog will get triggered.
-    // If your main loop doesn't have one, just add a simple `vTaskDelay(1)`.
-    // Detailed info here:
-    // https://stackoverflow.com/questions/66278271/task-watchdog-got-triggered-the-tasks-did-not-reset-the-watchdog-in-time
+  // The main loop must have some kind of "yield to lower priority task" event.
+  // Otherwise, the watchdog will get triggered.
+  // If your main loop doesn't have one, just add a simple `vTaskDelay(1)`.
+  // Detailed info here:
+  // https://stackoverflow.com/questions/66278271/task-watchdog-got-triggered-the-tasks-did-not-reset-the-watchdog-in-time
 
-    //     vTaskDelay(1);
-    delay(150);
+  //     vTaskDelay(1);
+  delay(150);
 }
